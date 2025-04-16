@@ -1,0 +1,1122 @@
+---
+title: "Code for Publication"
+output: html_document
+date: "2024-10-15"
+---
+
+```{r setup, include=FALSE,message=FALSE}
+library(tidyverse)
+library(plotrix)
+library(viridis)
+library(ggh4x) #For making leveled facets
+library(ggplot2); theme_set(theme_classic())
+library(patchwork)
+library(cowplot)
+library(grid)
+library(ggbeeswarm)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Main Text
+
+## Figure 3
+
+### Figure 3A
+
+#### 1) Load and wrangle the data
+
+```{r}
+df=read.csv("Fig 3A_BBA_v1.csv", skip=6) |> #seeds 1:100
+   bind_rows(read.csv("Fig 3A_BBA_v2.csv", skip=6)) |> #seeds 101:500
+  dplyr::select(
+        Vision=S1.DR,  #how far away they could detect another bird 
+        Olfaction=S1.Olfaction, #Olfaction threshold, high=better smeller, low=worse smeller
+        Strategy, #the bird's foraging strategy
+        FoundFoodAll=X.count.turtles.with..did.find.food...1.., #the number of birds that found the food source
+        Birds=N.Species1, #The total number of birds in the model (50 for all runs)
+        Seed,
+         )|> 
+  #Calculate the mean and margin of error for the success (as number of birds, not a percentage)
+  group_by(Olfaction,Strategy,Vision,Birds) |> #group by the relevant parameters to calculate the mean across all runs within each parameter space
+  summarise(n=n(),
+            t.score=qt(0.05/2,n-1,lower.tail = F), #calculating a t-score for the margin of error (95%)
+            Success.se=std.error(FoundFoodAll,na.rm=T),#calculating the standard error for the margin of error
+            margin.of.error=t.score*Success.se, #calculating the margin of error
+            Success=mean(FoundFoodAll,na.rm=T), #the mean success rate 
+            .groups = "drop"
+            ) %>% 
+  ungroup() |> 
+  #Calculate the Success Rate and margin of error as a percentage of the total group size
+  mutate(Success=(Success/Birds)*100,
+         margin.of.error=(margin.of.error/Birds)*100) |> 
+  #Add a \n to the names for the strategies for tidier legends in the plots, and set factor levels
+  mutate(Strategy= gsub(" "," \n",Strategy))|> 
+  mutate(Strategy=factor(Strategy,levels=c("Network \nForaging","Local \nEnhancement","Flock \nForaging", "Olfaction \nOnly"))) |> 
+  #Change the name of the olfaction levels for nicer plot labels
+  mutate(Olfaction=if_else(Olfaction=="high","High Olfaction","Low Olfaction")) |> 
+  #Select columns of interest
+  dplyr::select(Olfaction,Strategy,Vision,Birds,Success,margin.of.error)
+```
+
+#### 2) Make plot 3A 
+
+
+```{r,fig.width=10, fig.height=5}
+(p1=df |> 
+    ggplot(aes(x=Vision,y=Success,fill=Strategy,color=Strategy, group=Strategy,linetype=Strategy))+
+     theme_classic()+
+     theme(text = element_text(size=20),
+           legend.key.width = unit(4,"line"), #reduce spacing between legend items
+           legend.key.spacing.y = unit(0.4, "cm"),
+           plot.margin = margin(0, 0, 0, 0, "pt"),
+           axis.text.x = element_text(size=15, hjust=0.9), #adjust xaxis text to be right-aligned so it doesnt overlap between facets
+           )+
+     ylab("Success (%)")+
+     xlab("Visual Detection Range (Body-Lengths)")+
+     scale_y_continuous(limits = c(0,100))+
+     scale_color_viridis(discrete = TRUE,option="viridis")+
+     scale_fill_viridis(discrete = TRUE,option="viridis")+
+     scale_linetype_manual(values=c("11","23","54","solid"))+
+     geom_ribbon(aes(ymin=Success-margin.of.error, ymax=Success+margin.of.error), alpha=0.3, color=NA)+
+     geom_line(aes(),linewidth=1.8)+
+     theme(panel.spacing = unit(1, "lines"))+
+     facet_grid(~Olfaction) 
+)
+
+
+```
+#### 3) Calculations included in text
+
+```{r,fig.width=10, fig.height=5}
+
+#Mean Success rates for Olfaction Only Strategy for High and Low Olfaction
+df |> 
+  filter(Strategy=="Olfaction \nOnly") |> 
+  group_by(Olfaction) |> 
+  summarise(Success=mean(Success),margin.of.error=max(margin.of.error)) |> 
+  #distinct(Olfaction,Success,margin.of.error) |> 
+  reframe(
+    "Olfaction"=Olfaction,
+    "Success and Error"=paste0(round(Success,digits=1)," ± ",round(margin.of.error,digits = 1))
+    )
+
+#Highest Success Rates
+df |> 
+  group_by(Strategy,Olfaction) |> 
+  filter(Success==max(Success)) |> 
+  reframe(
+    "Strategy"=Strategy,
+    "Vision"=Vision,
+    "Olfaction"=Olfaction,
+    "Success and Error"=paste0(round(Success,digits=1)," ± ",round(margin.of.error,digits = 1))
+    )
+
+#% increase in Success Rates for Social strategies (by Olfaction) From Vision = 20 to Vision =200
+df |> 
+  filter(Strategy!="Olfaction \nOnly", Vision==20 | Vision==200) |> 
+  dplyr::select(Strategy,Vision,Olfaction,Success) |> 
+  #for each strategy/olfaction, the success rate when Vision=200, the success rate when Vision=20, and the difference between these
+  mutate(Vision=paste0("S",Vision),
+         Success=round(Success,digits=1)) |> 
+  pivot_wider(names_from = Vision,values_from = Success) |> 
+  mutate(SuccessInc=S200-S20)
+
+#Conditions at the point where Success Rates exceeded 95%
+df |> 
+  filter(Strategy=="Network \nForaging") |> 
+  filter(Success>=93 & Success <=96) |> 
+  group_by(Strategy,Olfaction) |> 
+  reframe(
+    "Strategy"=Strategy,
+    "Vision"=Vision,
+    "Olfaction"=Olfaction,
+    "Success and Error"=paste0(round(Success,digits=1)," ± ",round(margin.of.error,digits = 1))
+    )
+
+```
+
+### Figure 3B
+
+#### 1) Load and wrangle the data
+
+```{r, message=FALSE}
+#several models were run with different population sizes
+df2=
+  #The df loaded in the previous section is the version of the model with population =50. We add it here. Not actually used for the plot but used for calculations
+  read.csv("Fig 3A_BBA_v1.csv", skip=6) |> 
+  bind_rows(read.csv("Fig 3A_BBA_v2.csv", skip=6)) |> 
+  bind_rows(read.csv("Fig 3B_BBA_pop 20.csv", skip=6)) |> #pop = 20
+  bind_rows(read.csv("Fig 3B_BBA_pop 10.csv", skip=6)) |> #pop = 10
+  bind_rows(read.csv("Fig 3B_BBA_pop 5.csv", skip=6)) |> #pop = 5
+  dplyr::select(
+        Vision=S1.DR,  #how far away they could detect another bird 
+        Olfaction=S1.Olfaction, #sets olfaction threshold, high=better smeller, low=worse smeller
+        Strategy, #the bird's foraging strategy
+        FoundFoodAll=X.count.turtles.with..did.find.food...1.., #the number of birds that found the food source
+        Birds=N.Species1, #The total number of birds in the model 
+        Seed,
+         )|> 
+  #Calculate the mean and margin of error for the success (as number of birds, not a percentage)
+  group_by(Olfaction,Strategy,Vision,Birds) |> #group by the relevant parameters to calculate the mean across all runs within each parameter space
+  summarise(n=n(),
+            t.score=qt(0.05/2,n-1,lower.tail = F), #calculating a t-score for the margin of error (95%)
+            Success.se=std.error(FoundFoodAll,na.rm=T),#calculating the standard error for the margin of error
+            margin.of.error=t.score*Success.se, #calculating the margin of error
+            Success=mean(FoundFoodAll,na.rm=T), #the mean success rate 
+            .groups = "drop"
+            ) %>% 
+  ungroup() |> 
+  #Calculate the Success Rate and margin of error as a percentage of the total group size (must be done in this order)
+  mutate(Success=(Success/Birds)*100,
+         margin.of.error=(margin.of.error/Birds)*100) |> 
+  #Add a \n to the names for the strategies for tidier legends in the plots, and set factor levels
+  mutate(Strategy= gsub(" "," \n",Strategy))|> 
+  mutate(Strategy=factor(Strategy,levels=c("Network \nForaging","Local \nEnhancement","Flock \nForaging", "Olfaction \nOnly"))) |> 
+  #Change the name of the olfaction levels for tidier plot labels
+  mutate(Olfaction=if_else(Olfaction=="high","High Olfaction","Low Olfaction")) |> 
+  #Select columns of interest
+  dplyr::select(Olfaction,Strategy,Vision,Birds,Success,margin.of.error)
+```
+
+#### 2) Make plot 3B
+
+```{r,fig.width=12, fig.height=4, message=FALSE}
+(p2=df2 |> 
+   filter(Birds!=50) |> 
+   mutate(Birds=as.factor(paste0("Pop:",Birds))) |> 
+   mutate(Birds=factor(Birds,levels = c("Pop:20", "Pop:10","Pop:5"))) |>   
+   ggplot(aes(x=Vision,y=Success,fill=Strategy,color=Strategy, group=Strategy,linetype=Strategy))+
+     theme_classic()+
+     theme(text = element_text(size=20),
+           legend.key.width = unit(4,"line"),
+           legend.key.spacing.y = unit(0.4, "cm"),
+           axis.text.x = element_text(size=13.5, hjust=0.9),
+           plot.margin = margin(0, 0, 0, 0, "pt")
+           )+
+      ylab("Success (%)")+
+      xlab("Visual Detection Range (Body-Lengths)")+
+      scale_y_continuous(limits = c(0,100))+
+      scale_color_viridis(discrete = TRUE,option="viridis")+
+      scale_fill_viridis(discrete = TRUE,option="viridis")+
+      scale_linetype_manual(values=c("11","23","54","solid"))+
+      geom_ribbon(aes(ymin=Success-margin.of.error, ymax=Success+margin.of.error), alpha=0.3, color=NA)+
+      geom_line(aes(),linewidth=1.8)+
+      facet_nested(~Olfaction+Birds)
+)
+
+```
+
+#### 3) Calculations included in text
+
+```{r}
+#comparing the success rates for pop=50 to pop=5, for each detection range, social strategy and olfaction threshold 
+
+df2 |> 
+  filter(Strategy!="Olfaction \nOnly") |> 
+  dplyr::select(Olfaction,Birds,Vision,Success,Strategy) |> 
+  group_by(Olfaction,Strategy,Vision) |> 
+  #for each strategy/olfaction, the success rate when pop=50, the success rate when pop=5, and the difference between these
+  summarize(S50=Success[Birds==50],S5=Success[Birds==5], successdiff=round(S50-S5,digits=1)) |> 
+  select(Olfaction,Strategy,Vision,successdiff) |> 
+  #Here we make a section for different vision ranges, high medium and low basically. Just to make things easier to see
+  mutate(VisionCategory=if_else(Vision <= 80, "Small 20 - 80", if_else(Vision <= 150, "Med 90 - 150", "High 160 - 200"))) |> 
+  group_by(Olfaction,Strategy,VisionCategory) |> 
+  summarise(successdiff=max(successdiff)) |> #find the max change in success for each Olf, Strat, and Vision Category
+  rename(Vision=VisionCategory) |> 
+  arrange(desc(Vision)) |> 
+  #pivot to show the difference in success rates from pop=50 to pop=5 for each detection range
+  mutate(Vision=paste0("MaxDecS: DR ",Vision)) |> 
+  pivot_wider(names_from = Vision,values_from = successdiff)
+```
+
+
+### Figure 3 Combined
+
+```{r, warning=FALSE,fig.width=11, fig.height=8}
+# get just the legend
+legend_grob=cowplot::get_legend(p1)
+#remove legend from other plots
+p1.2=p1+theme(legend.position = "none")
+p2.1=p2+theme(legend.position = "none")
+
+#build a theme to get the plot levels (A and B) to have the formatting we want (bold and size 16) even though they are technically title elements
+thm <- theme(plot.title = element_text(face = 2, size = 16))
+#build bottom plot with tag=B, and top plot that combines the legend and has tag=A
+(wrap_elements((p1.2|legend_grob) + plot_annotation(title = "A", theme=thm))) / (wrap_elements((p2.1) + plot_annotation(title = "B", theme=thm)))
+
+#ggsave("../Figure 3.png")
+```
+
+
+## Figure 4
+
+### 1) Load and wrangle the data
+
+```{r}
+(df3=
+     read.csv("Fig 4_BBA and WCP.csv", skip=6) |> 
+  dplyr::select(
+        Species1=N.Species1,
+        Species2=N.Species2,
+        Strategy,
+        FoundFoodAll=X.count.turtles.with..did.find.food...1.., 
+        Seed
+         )|> 
+  mutate(
+    Birds=50
+    ) |> 
+  #Calculate the mean and margin of error for the success (as number of birds, not a percentage)
+  group_by(Species1,Species2,Strategy,Birds) |> #group by the relevant parameters to calculate the mean across all runs within each parameter space
+  summarise(n=n(),
+            t.score=qt(0.05/2,n-1,lower.tail = F), #calculating a t-score for the margin of error (95%)
+            Success.se=std.error(FoundFoodAll,na.rm=T),#calculating the standard error for the margin of error
+            margin.of.error=t.score*Success.se, #calculating the margin of error
+            Success=mean(FoundFoodAll,na.rm=T), #the mean success rate 
+            .groups = "drop"
+            ) %>% 
+  ungroup() |> 
+  #Calculate the Success Rate and margin of error as a percentage of the total group size (must be done in this order)
+  mutate(Success=(Success/Birds)*100,
+         margin.of.error=(margin.of.error/Birds)*100) |> 
+  #Create a column that is the "strategy" being used (the \n allows for tidier legends in the plots)
+  mutate(Strategy= gsub(" "," \n",Strategy))|> 
+  mutate(Strategy=factor(Strategy,levels=c("Network \nForaging","Local \nEnhancement","Flock \nForaging", "Olfaction \nOnly"))) |> 
+  #Select columns of interest
+  dplyr::select(Species1,Species2,Strategy,Birds,Success,margin.of.error)
+)
+```
+
+### 2) Make plot 4
+
+
+```{r, fig.width=11, fig.height=5}
+
+(p3=df3 |> 
+  ggplot(aes(x=Species2,y=Success,fill=Strategy,color=Strategy, group=Strategy,linetype=Strategy))+
+      theme(text = element_text(size=20),
+            legend.key.width = unit(4,"line"),
+            legend.key.spacing.y = unit(0.4, "cm"),
+             plot.margin = margin(l = 28),
+           )+
+      ylab("Success (%)")+
+      scale_y_continuous(limits = c(0,80))+
+      scale_color_viridis(discrete = TRUE,option="viridis")+
+      scale_fill_viridis(discrete = TRUE,option="viridis")+
+      scale_linetype_manual(values=c("11","23","54","solid"))+
+      geom_ribbon(aes(ymin=Success-margin.of.error,
+                      ymax=Success+margin.of.error), alpha=0.3, color=NA)+
+      geom_line(aes(),linewidth=1.8)+
+      theme(panel.spacing = unit(1, "lines"))+
+      scale_x_continuous(labels=~paste(50-.,.,sep="\n"))+ #set up x-axis to have species 1 on top (50-sp2), and species 2 on bottom
+     xlab("Number of birds")+
+    #  xlab(expression("Number of birds:" ~ atop("Olfactory foragers","Visual foragers    ") ~""))+
+      coord_cartesian(clip="off")+
+      annotation_custom(
+        grob = textGrob("\nOlf. foragers:\nVis. foragers:", hjust = 0.84, vjust=0.68,gp = gpar(fontsize = 14)),
+        xmin = -Inf, xmax = -Inf, ymin = -Inf, ymax = -Inf
+        )
+   )
+
+#ggsave("../Figure 4.png")
+
+```
+
+### 3) Calculations included in text
+
+```{r, fig.width=10, fig.height=5}
+
+#Success Rate for Olfaction Only for each group proportion
+filter(df3, Strategy=="Olfaction \nOnly") |> 
+  mutate(PercentAnosmic=(Species2/50)*100) |> 
+  group_by(PercentAnosmic) |> 
+  reframe("Success and Error"=paste0(round(Success)," ± ",round(margin.of.error)))
+
+
+# Flock Foraging: Success at each group proportion, the Success at that proportion compared to the MAX FF success rate, and the success at that proportion compared to the corresponding OO success rate
+
+df3 |> 
+  #select columns of interest and rename for ease
+  filter(Strategy=="Flock \nForaging" | Strategy=="Olfaction \nOnly") |> 
+  mutate(Strategy=if_else(Strategy=="Flock \nForaging","FF","OO")) |> 
+  dplyr::select(-c(margin.of.error,Birds)) |> 
+  #pivot to get success for each Strat as a column
+  pivot_wider(names_from = Strategy, values_from = Success) |> 
+  #calculate the FF succcess - the MAX FF success, and the FF success - the corresponding OO success
+  mutate(FFCompMax=max(FF) - FF , FFCompOO=FF-OO) |> 
+  arrange(Species2)|> 
+  mutate(PercentAnosmic=(Species2/50)*100) |> 
+  dplyr::select(PercentAnosmic,FFSuccess=FF,FFCompMax,FFCompOO)
+
+# Network Foraging. Also includes NF success compared to the last value (no anosmic), and NF compared to the Max OO value
+df3 |> 
+  #select columns of interest and rename for ease
+  filter(Strategy=="Network \nForaging" | Strategy=="Olfaction \nOnly") |> 
+  mutate(Strategy=if_else(Strategy=="Network \nForaging","NF","OO")) |> 
+  dplyr::select(-c(margin.of.error,Birds)) |> 
+  #pivot to get success for each Strat as a column
+  pivot_wider(names_from = Strategy, values_from = Success) |> 
+  #calculate the NF succcess - the MAX NF success, the NF success - the corresponding OO success, NF - the NF when %anosmic = 0, and NF - max(OO)
+  mutate(NFCompMax=max(NF)-NF , NFCompOO=NF-OO, NFCompNoAnos=(NF-last(NF)), NFCompMaxOO=NF-max(OO)) |> 
+  arrange(Species2) |> 
+  mutate(PercentAnosmic=(Species2/50)*100) |> 
+  dplyr::select(PercentAnosmic,NFSuccess=NF,NFCompMax,NFCompOO,NFCompNoAnos,NFCompMaxOO)
+
+#Same thing but for LE
+df3 |> 
+  #select columns of interest and rename for ease
+  filter(Strategy=="Local \nEnhancement" | Strategy=="Olfaction \nOnly") |> 
+  mutate(Strategy=if_else(Strategy=="Local \nEnhancement","LE","OO")) |> 
+  dplyr::select(-c(margin.of.error,Birds)) |> 
+  #pivot to get success for each Strat as a column
+  pivot_wider(names_from = Strategy, values_from = Success) |> 
+   #calculate the LE succcess - the MAX LE success, the LE success - the corresponding OO success, LE - the LE when %anosmic = 0, and LE - max(OO)
+  mutate(LECompMax=max(LE)-LE , LECompOO=LE-OO,LECompNoAnos=(LE-last(LE)),LECompMaxOO=LE-max(OO)) |> 
+  arrange(Species2) |> 
+  mutate(PercentAnosmic=(Species2/50)*100)|> 
+  dplyr::select(PercentAnosmic,LESuccess=LE,LECompMax,LECompOO,LECompNoAnos,LECompMaxOO)
+
+```
+
+
+# Supplemental Information
+
+## Parameterization:
+
+Function to analyze sensitivity 
+```{r}
+
+# This function show how much Success varies due exclusively due to the parameter-of-interest, and the direction of the slope (which number performed better)
+
+Amount.Of.Variance=function(col_to_replace, dfuse=df){
+  
+  #rename the parameter of interest
+  dfuse2=dfuse |> 
+    rename(NewCol={{col_to_replace}})
+  
+  #the min and max value used for the parameter of interest, along with the name of the parameter of interest
+  tmp.Range=dfuse2 |> 
+   summarise(MinValue=as.character(min(NewCol)), MaxValue=as.character(max(NewCol)), .groups = "drop") |> #min and max values used
+   mutate(Variable=paste0(col_to_replace)) |> #the name of the current parameter of interest
+   dplyr::select(Variable,MinValue,MaxValue) #reorder
+  
+  #calculate the amount that the parameter of interest specifically generally impacted success rates
+  tmp.TotalDiff= dfuse2 |> 
+    #group by everything except the parameter of interest
+    group_by(across(-c(Success,NewCol))) |> 
+    #find the min and max success due only to the parameter of interest (everything else held constant)
+    summarise(MinS=min(Success), MaxS=max(Success),.groups = "drop") |> 
+    mutate(TotalDiff=MaxS-MinS) |> 
+    #find the mean difference in the Success due to the parameter of interest across all other conditions
+    summarise(TotalDiff=round(mean(TotalDiff)),.groups = "drop")
+
+  #rescale everything to 0-1 so that the slopes are comparable
+  dfuse3=dfuse2 |> 
+     mutate(NewCol=rescale(NewCol,c(0,1)))
+  
+  #This calculates the slope of the relationship (was success generally better at higher or lower values) along with the pvalue and rsqrd 
+  tmp.lm=summary(lm(Success~NewCol,data=dfuse3))
+  tmp.lm.coeff=tmp.lm$coefficients
+  
+  #bind all together
+  tmp.Range |> 
+    bind_cols(tmp.TotalDiff) |> 
+    bind_cols(data.frame(Slope=round(tmp.lm.coeff[2,1]), Pval=round(tmp.lm.coeff[2,4], 4), Rsqr=round((tmp.lm$r.squared)*100,2)))
+
+}
+```
+
+### Sensitivity Analysis (Table S2)
+
+We ran a behaviorspace model for agents using the Network Foraging strategy ONLY, for groups of 50 birds (species 1 only). We iterated through seeds 1-5 for the following:
+
+- Rate.Of.Puff.Radius.Increase: 0.003, 0.03
+- Odor.Source.Release.Rate: 1, 10
+- Eddy.Diffusivity: -3, 1
+- weight.flocking: 0.6, 0.95
+- Time.Per.Turn: 10, 30
+- zig.zag.heading.offset: 25, 85
+- max.turning.radius: 15, 50
+- max.align.cohere.turn: 15, 50
+- max.separate.turn: 0.5, 1
+- Flight.Speed: 9, 15
+- Denominator.For.Relationship.Between.DR.and.MinSep: 2, 10
+- Olfaction: high, low
+- Detection Distance: 20, 200
+- Body.Length= 0.9 (held constant because it is inherently linked to vision)
+- Strategy= Network Foraging
+
+```{r}
+(df.S.Table2=read.csv("Parameterizing_Sensitivity Analysis.csv",skip=6) |> 
+  dplyr::select(
+    RadiusIncrease=Rate.Of.Puff.Radius.Increase,
+    ReleaseRate=Odor.Source.Release.Rate,
+    EddyD=Eddy.Diffusivity,
+    Weight=weight.flocking,
+    TimeTurn=Time.Per.Turn,
+    ZigZag=zig.zag.heading.offset,
+    MaxTurn=max.turning.radius.degrees.per.second,
+    AlignCohere=max.align.cohere.turn.degrees.per.second,
+    MaxSep=max.separate.turn.degrees.per.second,
+    Size=S1.Body.Length.Meters,
+    Speed=S1.Flight.Speed.MpS,
+    MinSep=Denominator.For.Relationship.Between.DR.and.MinSep,
+    Olfaction=S1.Olfaction,
+    Strategy,
+    Vision=S1.DR,
+    Seed,
+    FoundFoodAll=X.count.turtles.with..did.find.food...1..,
+    ) |> 
+  group_by(RadiusIncrease,ReleaseRate,EddyD,Weight,TimeTurn,ZigZag,MaxTurn,AlignCohere,MaxSep,Size,Speed,MinSep,Olfaction,Strategy,Vision) |> 
+  #Calculate the mean and margin of error for the success (as number of birds, not a percentage)
+   summarise(n=n(),
+            t.score=qt(0.05/2,n-1,lower.tail = F), #calculating a t-score for the margin of error (95%)
+            Success.se=std.error(FoundFoodAll,na.rm=T),#calculating the standard error for the margin of error
+            margin.of.error=t.score*Success.se, #calculating the margin of error
+            Success=mean(FoundFoodAll,na.rm=T), #the mean success rate
+            .groups = "drop"
+            ) %>%
+  ungroup() |>
+  #Calculate the Success Rate and margin of error as a percentage of the total group size (must be done in this order)
+  mutate(Success=(Success/50)*100,
+         margin.of.error=(margin.of.error/50)*100) |>
+   dplyr::select(-c(n,t.score,Success.se,margin.of.error)) 
+)
+
+
+
+Amount.Of.Variance("RadiusIncrease",df.S.Table2) |> 
+  bind_rows(Amount.Of.Variance("ReleaseRate",df.S.Table2)) |> 
+  bind_rows(Amount.Of.Variance("EddyD",df.S.Table2)) |> 
+  bind_rows(Amount.Of.Variance("Weight",df.S.Table2)) |>
+  bind_rows(Amount.Of.Variance("TimeTurn",df.S.Table2)) |>
+  bind_rows(Amount.Of.Variance("ZigZag",df.S.Table2)) |>
+  bind_rows(Amount.Of.Variance("MaxTurn",df.S.Table2)) |>
+  bind_rows(Amount.Of.Variance("AlignCohere",df.S.Table2)) |>
+  bind_rows(Amount.Of.Variance("MaxSep",df.S.Table2)) |>
+  bind_rows(Amount.Of.Variance("MinSep",df.S.Table2)) |>
+  arrange(desc(TotalDiff)) |> 
+  dplyr::select(Variable,"Min Value Used"=MinValue,"Max Value Used"=MaxValue,"Increase in Success Rate (%)"=TotalDiff,Slope)
+
+```
+
+### The Odor Plume Model (Figures S1 and S2)
+
+We ran a behaviorspace model for groups of 50 birds (species 1 only).
+
+We iterate through seeds 1-20 for the following:
+
+- Rate.Of.Puff.Radius.Increase: 0.001, 0.01
+- Odor.Source.Release.Rate: 1, 5, 10
+- Eddy.Diffusivity: -1, 0, 1
+- zig.zag.heading.offset: 25, 85
+- Denominator.For.Relationship.Between.DR.and.MinSep: 2, 10
+- Flight.Speed: 9, 15
+- Olfaction: high, low
+- Strategy: Network Foraging, Olfaction Only
+- Detection Distance: 60, 100, 200
+
+Things held constant:
+- weight.flocking= 0.8
+- Time.Per.Turn= 10
+- max.turning.radius= 50
+- max.align.cohere.turn= 50
+- max.separate.turn= 1
+- Body.Length= 0.9
+
+
+```{r}
+(df.S1and2=
+  read.csv("Parameterizing_Odor Plume.csv",skip=6) |> 
+  dplyr::select(
+    RadiusIncrease=Rate.Of.Puff.Radius.Increase,
+    ReleaseRate=Odor.Source.Release.Rate,
+    EddyD=Eddy.Diffusivity,
+    ZigZag=zig.zag.heading.offset,
+    MinSep=Denominator.For.Relationship.Between.DR.and.MinSep,
+    Olfaction=S1.Olfaction,
+    Strategy,
+    Vision=S1.DR,
+    Speed=S1.Flight.Speed.MpS,
+    Seed,
+    FoundFoodAll=X.count.turtles.with..did.find.food...1..,
+    ) |> 
+  group_by(RadiusIncrease,ReleaseRate,EddyD,ZigZag,MinSep,Olfaction,Strategy,Vision,Speed) |> 
+#  Calculate the mean and margin of error for the success (as number of birds, not a percentage)
+   summarise(n=n(),
+            t.score=qt(0.05/2,n-1,lower.tail = F), #calculating a t-score for the margin of error (95%)
+            Success.se=std.error(FoundFoodAll,na.rm=T),#calculating the standard error for the margin of error
+            margin.of.error=t.score*Success.se, #calculating the margin of error
+            Success=mean(FoundFoodAll,na.rm=T), #the mean success rate
+            .groups = "drop") %>%
+  ungroup() |>
+  #Calculate the Success Rate and margin of error as a percentage of the total group size (must be done in this order)
+  mutate(Success=(Success/50)*100,
+         margin.of.error=(margin.of.error/50)*100) |>
+   dplyr::select(-c(n,t.score,Success.se,margin.of.error))
+)
+
+#sensitivity analysis -- not included in text
+Amount.Of.Variance("RadiusIncrease", df.S1and2) |> 
+  bind_rows(Amount.Of.Variance("ReleaseRate", df.S1and2)) |> 
+  bind_rows(Amount.Of.Variance("EddyD", df.S1and2)) |> 
+  arrange(desc(TotalDiff)) |> 
+  dplyr::select(Variable,MinValueUsed=MinValue,MaxValueUsed=MaxValue,DiffInSuccess=TotalDiff,Slope)
+```
+
+#### For Odor Release Rate (Figure S1)
+```{r, fig.width=12, fig.height=5}
+(pS1=df.S1and2 |>
+  ggplot(aes(x=as.numeric(Vision),y=Success,color=as.factor(ReleaseRate)),alpha=0.8)+
+  geom_violin(aes(group=interaction(Vision,ReleaseRate),fill=as.factor(ReleaseRate)),  alpha=0.3,position = "identity", linewidth=1.5)+
+  geom_beeswarm(aes(group=interaction(Vision,ReleaseRate)),size=1)+
+  geom_path(data = df.S2 |> group_by(Vision,ReleaseRate,Strategy,Olfaction) |> summarise(Success=mean(Success),.groups = "drop"),linewidth=2)+ 
+  theme(panel.spacing.x = unit(c(0.1,1,0.1), "lines"))+
+  facet_nested(~Strategy+Olfaction, labeller="label_both")+
+  labs(x="Detection Range (Body Lengths)",y="Success (%)",color="Odor\nRelease\nRate (Hz)", fill="Odor\nRelease\nRate (Hz)")+
+  theme_classic(base_size = 20)
+)
+
+```
+
+#### Rate of Radius Increase + Eddy Diffusivity (Figure S2)
+
+```{r,fig.width=12, fig.height=16}
+(p.S2=(
+df.S1and2 |>
+  ggplot(aes(x=as.numeric(Vision),y=Success,color=as.factor(RadiusIncrease)),alpha=0.8)+
+  #geom_point()+
+  geom_violin(aes(group=interaction(Vision,RadiusIncrease),fill=as.factor(RadiusIncrease)),  alpha=0.3,position = "identity", linewidth=1.5)+
+  geom_beeswarm(aes(group=interaction(Vision,RadiusIncrease)),size=1)+
+  geom_path(data = df.S2 |> group_by(Vision,RadiusIncrease,Strategy,Olfaction,ReleaseRate) |> summarise(Success=mean(Success),.groups = "drop"),linewidth=2)+ 
+  theme(panel.spacing.x = unit(c(0.1,1,0.1), "lines"))+
+  facet_nested(ReleaseRate~Strategy+Olfaction, labeller="label_both")+
+  labs(x="Detection Range (Body Lengths)",y="Success (%)",color="Radius\nIncrease\nRate\n(m/s)", fill="Radius\nIncrease\nRate\n(m/s)")+
+  theme_classic(base_size = 20)
+)/
+(df.S1and2 |>
+  ggplot(aes(x=as.numeric(Vision),y=Success,color=as.factor(EddyD)),alpha=0.8)+
+  #geom_point()+
+  geom_violin(aes(group=interaction(Vision,EddyD),fill=as.factor(EddyD)),  alpha=0.3,position = "identity", linewidth=1.5)+
+  geom_beeswarm(aes(group=interaction(Vision,EddyD)),size=1)+
+  geom_path(data = df.S2 |> group_by(Vision,EddyD,Strategy,Olfaction,ReleaseRate) |> summarise(Success=mean(Success),.groups = "drop"),linewidth=2)+ 
+  theme(panel.spacing.x = unit(c(0.1,1,0.1), "lines"))+
+  facet_nested(ReleaseRate~Strategy+Olfaction, labeller="label_both")+
+  labs(x="Detection Range (Body Lengths)",y="Success (%)",color="Eddy\nDiffus\n(m2/s)", fill="Eddy\nDiffus\n(m2/s)")+
+  theme_classic(base_size = 20) 
+ )+
+  plot_annotation(tag_levels = "A")
+) 
+```
+
+### Minimum Separation (Fig S3)
+
+Here we iterate through seeds 1-20 for the following:
+
+- zig.zag.heading.offset: 20, 80
+- Flight.Speed: 9, 11.5, 15
+- Denominator.For.Relationship.Between.DR.and.MinSep: 2, 4, 6, 8, 10, 12, 14, 16, 18, 20
+- Olfaction: high, low
+
+Other variables held constant
+- Vision: 60, 100, 200
+- Strategy= Network Foraging
+- Rate.Of.Puff.Radius.Increase= 0.001
+- Odor.Source.Release.Rate= 5
+- Eddy.Diffusivity= -1
+- weight.flocking= 0.8
+- Time.Per.Turn= 10
+- max.turning.radius= 50
+- max.align.cohere.turn= 50
+- max.separate.turn= 1
+- Body.Length= 0.9 
+
+
+
+```{r, fig.width=10,fig.height=5}
+df.S3=read.csv("Parameterizing_MinSep.csv", skip=6) |> 
+  dplyr::select(
+    ZigZag=zig.zag.heading.offset,
+    Speed=S1.Flight.Speed.MpS,
+    MinSep=Denominator.For.Relationship.Between.DR.and.MinSep,
+    Olfaction=S1.Olfaction,
+    Strategy,
+    Vision=S1.DR,
+    Seed,
+    FoundFoodAll=X.count.turtles.with..did.find.food...1..,
+    ) |> 
+  group_by(ZigZag,Speed,MinSep,Olfaction,Strategy,Vision) |> 
+  #  Calculate the mean and margin of error for the success (as number of birds, not a percentage)
+   summarise(n=n(),
+            t.score=qt(0.05/2,n-1,lower.tail = F), #calculating a t-score for the margin of error (95%)
+            Success.se=std.error(FoundFoodAll,na.rm=T),#calculating the standard error for the margin of error
+            margin.of.error=t.score*Success.se, #calculating the margin of error
+            Success=mean(FoundFoodAll,na.rm=T), #the mean success rate
+            ) %>%
+  ungroup() |>
+  #Calculate the Success Rate and margin of error as a percentage of the total group size (must be done in this order)
+  mutate(Success=(Success/50)*100,
+         margin.of.error=(margin.of.error/50)*100) |>
+   dplyr::select(-c(n,t.score,Success.se,margin.of.error))
+
+Amount.Of.Variance("MinSep",df.S4) #In general, things were better at  higher MinSep, but likely this relationship is non-linear
+(
+pS3=df.S3 |> 
+  ggplot(aes(x=as.numeric(MinSep),y=Success,color=as.factor(Vision)),alpha=0.8)+
+  #geom_point()+
+  geom_violin(aes(group=interaction(Vision,MinSep),fill=as.factor(Vision)),  alpha=0.3,position = "identity", linewidth=1.5)+
+  geom_beeswarm(aes(group=interaction(Vision,MinSep)),size=1)+
+  geom_path(data = df.S4 |> group_by(Vision,MinSep,Strategy,Olfaction) |> summarise(Success=mean(Success),.groups = "drop"),linewidth=2)+ 
+  theme(panel.spacing.x = unit(c(0.1,1,0.1), "lines"))+
+  facet_nested(~Olfaction, labeller="label_both")+
+  labs(x="Denominator Setting Minimum Separation",y="Success (%)",color="Detection\nRange\n(BL)", fill="Detection\nRange\n(BL)")+
+  theme_classic(base_size = 20) 
+)
+```
+### Zig-Zag-Heading-Offset (Fig S4)
+
+
+Here we iterate through seeds 1-50 for the following:
+
+- zig.zag.heading.offset: 20,30,40,50,60,70, 80
+- Olfaction: high, low
+- Strategy: Network Foraging, Olfaction Only
+- Vision: 20, 100, 200
+
+Things held constant:
+
+- Rate.Of.Puff.Radius.Increase= 0.001
+- Odor.Source.Release.Rate= 5
+- Eddy.Diffusivity= -1
+- weight.flocking= 0.8
+- Time.Per.Turn= 10
+- max.turning.radius= 50
+- max.align.cohere.turn= 50
+- max.separate.turn= 1
+- Body.Length= 0.9 
+- Flight.Speed= 11.5
+- Denominator.For.Relationship.Between.DR.and.MinSep= 8
+
+```{r, fig.width=10, fig.height=5}
+
+df.S4=read.csv("Parameterizing_ZigZag.csv", skip=6) |> 
+  dplyr::select(
+    ZigZag=zig.zag.heading.offset,
+    Speed=S1.Flight.Speed.MpS,
+    Olfaction=S1.Olfaction,
+    Strategy,
+    Vision=S1.DR,
+    Seed,
+    FoundFoodAll=X.count.turtles.with..did.find.food...1..,
+    ) |> 
+  group_by(ZigZag,Speed,Olfaction,Strategy,Vision) |> 
+  #  Calculate the mean and margin of error for the success (as number of birds, not a percentage)
+   summarise(n=n(),
+            t.score=qt(0.05/2,n-1,lower.tail = F), #calculating a t-score for the margin of error (95%)
+            Success.se=std.error(FoundFoodAll,na.rm=T),#calculating the standard error for the margin of error
+            margin.of.error=t.score*Success.se, #calculating the margin of error
+            Success=mean(FoundFoodAll,na.rm=T), #the mean success rate
+            ) %>%
+  ungroup() |>
+  #Calculate the Success Rate and margin of error as a percentage of the total group size (must be done in this order)
+  mutate(Success=(Success/50)*100,
+         margin.of.error=(margin.of.error/50)*100) |>
+   dplyr::select(-c(n,t.score,Success.se,margin.of.error))
+
+# Showing the relationship between zigzag and success varies by strategy, olfaction, and vision
+df.S4 |> 
+  group_by(Strategy,Olfaction,Vision) |> 
+  summarize(Slope = coef(lm(Success ~ ZigZag, data = cur_data()))[2], .groups = "drop") 
+(
+pS4=
+df.S4 |> 
+  ggplot(aes(x=ZigZag,y=Success,color=as.factor(Vision)))+
+  theme_classic(base_size = 20)+
+  geom_point(size=2)+
+  geom_path(linewidth=2)+
+  theme(panel.spacing.x = unit(c(0.7,1,0.7), "lines"),
+        axis.text.x = element_text(size=15,hjust=0.5))+
+  facet_nested(~Strategy+Olfaction, labeller="label_both")+
+  labs(x="Zig Zag Heading Offset (degrees)",y="Success (%)",color="Detection\nRange\n(BL)", fill="Detection\nRange\n(BL)")
+)
+
+```
+
+
+## Other Species
+
+Functions
+```{r}
+#function for loading and wrangling the dataframes to make figure 3
+FunctionForWranglingFig3=function(df){
+  df |> 
+     dplyr::select(
+        Vision=S1.DR,  #how far away they could detect another bird 
+        Olfaction=S1.Olfaction, #sets olfaction threshold, high=better smeller, low=worse smeller
+        Strategy, #the bird's foraging strategy 
+         FoundFoodAll=X.count.turtles.with..did.find.food...1.., #the number of birds that found the food source
+         Birds=N.Species1, #The total number of birds in the model (here should be 50 for all runs)
+         Seed
+         )|> 
+  #Calculate the mean and margin of error for the success (as number of birds, not a percentage)
+  group_by(Olfaction,Strategy,Vision,Birds) |> #group by the relevant parameters to calculate the mean across all runs within each parameter space
+  summarise(n=n(),
+            t.score=qt(0.05/2,n-1,lower.tail = F), #calculating a t-score for the margin of error (95%)
+            Success.se=std.error(FoundFoodAll,na.rm=T),#calculating the standard error for the margin of error
+            margin.of.error=t.score*Success.se, #calculating the margin of error
+            Success=mean(FoundFoodAll,na.rm=T), #the mean success rate 
+            .groups = "drop"
+            ) %>% 
+  ungroup() |> 
+  #Add a \n to the names for the strategies for tidier legends in the plots, and set factor levels
+  mutate(Strategy= gsub(" "," \n",Strategy))|> 
+  mutate(Strategy=factor(Strategy,levels=c("Network \nForaging","Local \nEnhancement","Flock \nForaging", "Olfaction \nOnly"))) |> 
+  #Change the name of the olfaction levels for tidier plot labels
+  mutate(Olfaction=if_else(Olfaction=="high","High Olfaction","Low Olfaction")) |> 
+  #Calculate the Success Rate and margin of error as a percentage of the total group size (must be done in this order)
+  mutate(Success=(Success/Birds)*100,
+         margin.of.error=(margin.of.error/Birds)*100) |> 
+  #Select columns of interest
+  dplyr::select(Olfaction,Strategy,Vision,Birds,Success,margin.of.error)
+}
+
+
+#function to load and wrangle the df for figure 4
+FunctionForWranglingFig4=function(df){
+  df |> 
+    dplyr::select(
+        Species1=N.Species1,
+        Species2=N.Species2,
+        Strategy,
+        FoundFoodAll=X.count.turtles.with..did.find.food...1.., 
+        Seed
+         )|> 
+  mutate(Birds=Species1+Species2) |> 
+  #Calculate the mean and margin of error for the success (as number of birds, not a percentage)
+  group_by(Species1,Species2,Strategy,Birds) |> #group by the relevant parameters to calculate the mean across all runs within each parameter space
+  summarise(n=n(),
+            t.score=qt(0.05/2,n-1,lower.tail = F), #calculating a t-score for the margin of error (95%)
+            Success.se=std.error(FoundFoodAll,na.rm=T),#calculating the standard error for the margin of error
+            margin.of.error=t.score*Success.se, #calculating the margin of error
+            Success=mean(FoundFoodAll,na.rm=T), #the mean success rate 
+            .groups = "drop"
+            ) %>% 
+  ungroup() |> 
+  #Create a column that is the "strategy" being used (the \n allows for tidier legends in the plots)
+  mutate(Strategy= gsub(" "," \n",Strategy))|> 
+  mutate(Strategy=factor(Strategy,levels=c("Network \nForaging","Local \nEnhancement","Flock \nForaging", "Olfaction \nOnly"))) |> 
+  #Calculate the Success Rate and margin of error as a percentage of the total group size (must be done in this order)
+  mutate(Success=(Success/Birds)*100,
+         margin.of.error=(margin.of.error/Birds)*100) |> 
+  #Select columns of interest
+  dplyr::select(Species1,Species2,Strategy,Birds,Success,margin.of.error)
+    
+}
+
+
+
+#function to make the figure 3 plot
+FunctionP3=function(df){
+  
+  df |> 
+    ggplot(aes(x=Vision,y=Success,fill=Strategy,color=Strategy, group=Strategy,linetype=Strategy))+
+     theme_classic()+
+     theme(text = element_text(size=25),
+           legend.key.width = unit(4,"line"),
+           legend.key.spacing.y = unit(0.4, "cm"),
+           plot.margin = margin(0, 0, 0, 0, "pt"),
+           axis.text.x = element_text(size=18, hjust=0.8),
+           )+
+     ylab("Success (%)")+
+     xlab("Visual Detection Range (Body-Lengths)")+
+     scale_y_continuous(limits = c(0,100))+
+     scale_color_viridis(discrete = TRUE,option="viridis")+
+     scale_fill_viridis(discrete = TRUE,option="viridis")+
+     scale_linetype_manual(values=c("11","23","54","solid"))+
+     geom_ribbon(aes(ymin=Success-margin.of.error, ymax=Success+margin.of.error), alpha=0.3, color=NA)+
+     geom_line(aes(),linewidth=1.8)
+}
+FunctionP4=function(df){
+  df |> 
+   ggplot(aes(x=Species2,y=Success,fill=Strategy,color=Strategy, group=Strategy,linetype=Strategy))+
+      theme(text = element_text(size=25),
+            legend.key.width = unit(4,"line"),
+            legend.key.spacing.y = unit(0.4, "cm"),
+             plot.margin = margin(l = 25, b=30, t=0),
+           )+
+      ylab("Success (%)")+
+      scale_y_continuous(limits = c(0,80))+
+      scale_color_viridis(discrete = TRUE,option="viridis")+
+      scale_fill_viridis(discrete = TRUE,option="viridis")+
+      scale_linetype_manual(values=c("11","23","54","solid"))+
+      geom_ribbon(aes(ymin=Success-margin.of.error,
+                      ymax=Success+margin.of.error), alpha=0.3, color=NA)+
+      geom_line(aes(),linewidth=1.8)+
+      theme(panel.spacing = unit(1, "lines"))+
+      scale_x_continuous(labels=~paste(50-.,.,sep="\n"))+ #set up x-axis to have species 1 on top (50-sp2), and species 2 on bottom
+      xlab("Number of birds")+
+      #xlab("Number of birds in each species:\nSp 1 = Olf. foragers, Sp 2 = Vis. foragers")+
+      coord_cartesian(clip="off")+
+      annotation_custom(
+        grob = textGrob("\nOlf:\nVis:", hjust = 1, vjust=0.68,gp = gpar(fontsize = 17)),
+        xmin = -Inf, xmax = -Inf, ymin = -Inf, ymax = -Inf
+        )
+      # annotation_custom(
+      #   grob = textGrob("\nSp 1:\nSp 2:", hjust = 1.2, vjust=0.7,gp = gpar(fontsize = 17)),
+      #   xmin = -Inf, xmax = -Inf, ymin = -Inf, ymax = -Inf
+      #   )
+}
+
+     
+   
+
+
+  #build a theme to get the plot levels (A and B) to have the formatting we want (bold and size 16) even though they are technically title elements
+thm <- theme(plot.title = element_text(face = 2, size = 18))
+```
+
+
+### Wilsons Storm Petrel (Fig S5)
+
+```{r, warning=FALSE,fig.width=14, fig.height=9}
+# Figure 3A
+df.WSP=FunctionForWranglingFig3(df=read.csv("Fig 3A_WSP.csv", skip=6))
+P3A.WSP=FunctionP3(df.WSP)+
+     theme(panel.spacing = unit(1, "lines"))+
+     facet_grid(~Olfaction)+
+     theme(legend.position = "none")
+
+# Figure 3B
+
+df2.WSP=FunctionForWranglingFig3(df=read.csv("Fig 3B_WSP.csv", skip=6)) |> 
+  mutate(Birds=as.factor(paste0("Pop:",Birds))) |>
+  mutate(Birds=factor(Birds,levels = c("Pop:20", "Pop:10","Pop:5"))) 
+
+P3B.WSP=FunctionP3(df2.WSP)+facet_nested(~Olfaction+Birds)+theme(legend.margin = margin(t = 0, b=2, l=1, unit = "cm"))+
+  scale_x_continuous(breaks=c(50,120,200))
+
+#Figure 4
+df3.WSP=FunctionForWranglingFig4(read.csv("Fig 4_WSP.csv", skip=6)) 
+
+P4.WSP=FunctionP4(df3.WSP)+theme(legend.position = "none",plot.margin = margin(l = 12, b=0, t=0))
+
+
+#combine
+(pS5=(( wrap_elements(P3A.WSP+ plot_annotation(title = "A", theme=thm)) | wrap_elements(P4.WSP+ plot_annotation(title = "C", theme=thm)) )/ wrap_elements(P3B.WSP + plot_annotation(title = "B", theme=thm)
+  ))+
+  plot_annotation(
+    title = "Wilson's storm-petrel",
+   # title = "White-Chinned Petrel",
+    theme = theme(plot.title = element_text(face = 2, size = 20))
+  )
+)
+#ggsave("../Figure 3.png")
+```
+
+
+
+
+
+### White-chinned petrel (Fig S6)
+
+```{r, warning=FALSE,fig.width=14, fig.height=9}
+# Figure 3A
+
+df.WCP=FunctionForWranglingFig3(df=read.csv("Fig 3A_WCP.csv", skip=6))
+P3A.WCP=FunctionP3(df.WCP)+
+     theme(panel.spacing = unit(1, "lines"))+
+     facet_grid(~Olfaction)+
+     theme(legend.position = "none")
+
+# Figure 3B
+
+df2.WCP=FunctionForWranglingFig3(df= read.csv("Fig 3B_WCP.csv", skip=6)) |> 
+  mutate(Birds=as.factor(paste0("Pop:",Birds))) |>
+  mutate(Birds=factor(Birds,levels = c("Pop:20", "Pop:10","Pop:5"))) 
+
+P3B.WCP=FunctionP3(df2.WCP)+facet_nested(~Olfaction+Birds)+theme(legend.margin = margin(t = 0, b=2, l=1, unit = "cm"))+
+  scale_x_continuous(breaks=c(50,120,200))
+
+#Figure 4
+
+df3.WCP=FunctionForWranglingFig4(read.csv("Fig 4_WCP.csv", skip=6)) 
+
+P4.WCP=FunctionP4(df3.WCP)+theme(legend.position = "none",plot.margin = margin(l = 25, b=0, t=0))
+
+
+#combine
+(pS6=(( wrap_elements(P3A.WCP+ plot_annotation(title = "A", theme=thm)) | wrap_elements(P4.WCP+ plot_annotation(title = "C", theme=thm)) )/ wrap_elements(P3B.WCP + plot_annotation(title = "B", theme=thm)
+  ))+
+  plot_annotation(
+   title = "White-chinned petrel",
+    theme = theme(plot.title = element_text(face = 2, size = 20))
+  )
+)
+#ggsave("../Figure 3.png")
+```
+
+### Wandering Albatross (Fig S7)
+
+```{r, warning=FALSE,fig.width=14, fig.height=9}
+# Figure 3A
+df.WA=FunctionForWranglingFig3(df=read.csv("Fig 3A_Wandering Albatross.csv", skip=6))
+P3A.WA=FunctionP3(df.WA)+
+     theme(panel.spacing = unit(1, "lines"))+
+     facet_grid(~Olfaction)+
+     theme(legend.position = "none")
+
+# Figure 3B
+df2.WA=FunctionForWranglingFig3(df= read.csv("Fig 3B_Wandering Albatross.csv", skip=6)) |> 
+  mutate(Birds=as.factor(paste0("Pop:",Birds))) |>
+  mutate(Birds=factor(Birds,levels = c("Pop:20", "Pop:10","Pop:5"))) 
+
+P3B.WA=FunctionP3(df2.WA)+facet_nested(~Olfaction+Birds)+theme(legend.margin = margin(t = 0, b=2, l=1, unit = "cm"))+
+  scale_x_continuous(breaks=c(50,120,200))
+
+#Figure 4
+df3.WA=FunctionForWranglingFig4(read.csv("Fig 4_Wandering Albatross.csv", skip=6)) 
+
+P4.WA=FunctionP4(df3.WA)+theme(legend.position = "none",plot.margin = margin(l = 25, b=0, t=0))
+
+
+#combine
+(pS7=(( wrap_elements(P3A.WA+ plot_annotation(title = "A", theme=thm)) | wrap_elements(P4.WA+ plot_annotation(title = "C", theme=thm)) )/ wrap_elements(P3B.WA + plot_annotation(title = "B", theme=thm)
+  ))+
+  plot_annotation(
+   title = "Wandering albatross",
+    theme = theme(plot.title = element_text(face = 2, size = 20))
+  )
+)
+#ggsave("../Figure 3.png")
+```
+
+
+
+### Black-browed Albatross (Fig S8)
+
+```{r, fig.width=11, fig.height=5}
+df.BBA=FunctionForWranglingFig4(read.csv("Fig 4_BBA.csv", skip=6)) 
+
+(pS8=FunctionP4(df.BBA)+
+  plot_annotation(
+   title = "Black-browed albatross",
+    theme = theme(plot.title = element_text(face = 2, size = 18))
+  )
+)
+```
+
+
+## Individual Analysis: Figure S9
+
+```{r, message=FALSE}
+#reload the same dataframe as for figure 3A but load more of the model output values
+(df.OdorOnly=
+   read.csv("Fig 3A_BBA_v1.csv", skip=6) |> 
+   bind_rows(read.csv("Fig 3A_BBA_v2.csv", skip=6)) |>
+  dplyr::select(
+        Vision=S1.DR,  #how far away they could detect another bird 
+        Olfaction=S1.Olfaction, #sets olfaction threshold, high=better smeller, low=worse smeller
+        Strategy, #the bird's foraging strategy (Network Foraging (NF), Local Enhancement (LE), Flock Foraging (FF), or Olfaction Only (OO))
+        FoundFoodAndOdor=X.count.turtles.with..did.find.food...1.and.ever.find.odor...1..,
+        FoundOdorEver=X.allfoundodor., #The number of birds that EVER found the Odor plume (regardless of if they also found the food source)
+        Birds=N.Species1, #The total number of birds in the model (here should be 50 for all runs)
+        Seed,
+         )|> 
+   mutate(FoundOdorOnly=FoundOdorEver - (FoundFoodAndOdor)) |>  #the number of birds that found the odor but then did NOT find the food source
+   mutate(PercentFailureFollowPlume=(FoundOdorOnly/FoundOdorEver)*100) |> # The number of birds that found the odor but not food as a percentage of the number of birds that found the odor
+  #Calculate the mean and margin of error
+  group_by(Olfaction,Strategy,Vision,Birds) |> #group by the relevant parameters to calculate the mean across all runs within each parameter space
+  summarise(n=n(),
+            t.score=qt(0.05/2,n-1,lower.tail = F), #calculating a t-score for the margin of error (95%)
+            
+            #Number of Birds that found the odor but did not find the food, as a percentage of the number that found the odor
+            FailFollowOdor.se=std.error(PercentFailureFollowPlume,na.rm=T),
+            MOE.FailFollowOdor=t.score*FailFollowOdor.se,
+            PercentFailFollowOdor=mean(PercentFailureFollowPlume,na.rm=T),
+            
+            #Number of Birds that found the odor
+            OdorAll.se=std.error(FoundOdorEver,na.rm=T),
+            MOE.OdorAll=t.score*OdorAll.se,
+            OdorAll=mean(FoundOdorEver,na.rm=T),
+            .groups = "drop"
+            ) %>% 
+  ungroup() |> 
+  #Add a \n to the names for the strategies for tidier legends in the plots, and set factor levels
+  mutate(Strategy= gsub(" "," \n",Strategy))|> 
+  mutate(Strategy=factor(Strategy,levels=c("Network \nForaging","Local \nEnhancement","Flock \nForaging", "Olfaction \nOnly"))) |> 
+  #Change the name of the olfaction levels for tidier plot labels
+  mutate(Olfaction=if_else(Olfaction=="high","High Olfaction","Low Olfaction")) |> 
+   
+  #Calculate the Success Rate and margin of error for the birds that found the Odor as a percentage of the total group size
+  mutate(
+         OdorAll=(OdorAll/Birds)*100,
+         MOE.OdorAll=(MOE.OdorAll/Birds)*100,
+         
+         ) |> 
+  #Select columns of interest
+  dplyr::select(Olfaction,Strategy,Vision,Birds,
+                OdorAll, MOE.OdorAll, PercentFailFollowOdor,MOE.FailFollowOdor)
+)
+```
+
+
+```{r,fig.width=14, fig.height=6}
+#for a single plot we had: width = 12 height =6
+#For 2 we had width=20, height=7
+(pS9=(
+    (df.OdorOnly |> 
+    ggplot(aes(x=Vision,y=PercentFailFollowOdor,
+               fill=Strategy,color=Strategy,
+               group=Strategy,linetype=Strategy))+
+      theme_classic()+
+      theme(text = element_text(size=24),
+           legend.key.width = unit(4,"line"),
+           legend.key.spacing.y = unit(0.4, "cm")
+           )+
+      ylab("Found Odor But Not Food \n(% of Found Odor)")+
+      xlab("Detection Range (Body-Lengths)")+ 
+      scale_y_continuous(limits = c(0,100))+
+      scale_color_viridis(discrete = TRUE,option="viridis")+
+      scale_fill_viridis(discrete = TRUE,option="viridis")+
+      scale_linetype_manual(values=c("11","23","54","solid"))+
+      geom_ribbon(aes(ymin=PercentFailFollowOdor-MOE.FailFollowOdor,
+                      ymax=PercentFailFollowOdor+MOE.FailFollowOdor),
+                  alpha=0.3, color=NA)+
+      geom_line(aes(),linewidth=1.8)+
+      theme(panel.spacing = unit(1, "lines"))+
+      facet_grid(~Olfaction)
+)+
+  
+  (df.OdorOnly |>
+    ggplot(aes(x=Vision,y=OdorAll,
+               fill=Strategy,color=Strategy,
+               group=Strategy,linetype=Strategy))+
+      theme_classic()+
+      theme(text = element_text(size=24),
+           legend.key.width = unit(4,"line"),
+           legend.key.spacing.y = unit(0.4, "cm")
+           )+
+      ylab("Found Odor \n(% of Whole Group)")+
+      xlab("Detection Range (Body-Lengths)")+ 
+       scale_y_continuous(limits = c(0,100))+
+      scale_color_viridis(discrete = TRUE,option="viridis")+
+      scale_fill_viridis(discrete = TRUE,option="viridis")+
+      scale_linetype_manual(values=c("11","23","54","solid"))+
+      geom_ribbon(aes(ymin=OdorAll-MOE.OdorAll, 
+                      ymax=OdorAll+MOE.OdorAll), 
+                  alpha=0.3, color=NA)+
+      geom_line(aes(),linewidth=1.8)+
+      theme(panel.spacing = unit(1, "lines"))+
+      facet_grid(~Olfaction)
+)+
+  plot_layout(axis_titles = "collect")+
+  plot_layout(guides = "collect")+
+  plot_annotation(tag_levels = "A")&
+  theme(legend.position = "bottom", legend.direction = "horizontal",
+        )
+)
+)
+#ggsave("../Figure S6.png")
+
+
+```
+
